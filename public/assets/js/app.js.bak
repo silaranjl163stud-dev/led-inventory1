@@ -1,0 +1,1270 @@
+const App = {
+    currentView: 'view-dashboard',
+    user: null,
+    loadedStocks: [],
+    currentLoadedType: 'cabinet',
+    currentDisplayedStocks: [],
+    stockCurrentPage: 1,
+    stockItemsPerPage: 10,
+    stockFilteredData: [],
+    
+    async init() {
+        this.bindNavigation();
+        window.addEventListener('item-scanned', (e) => this.handleScan(e.detail));
+        window.addEventListener('unauthorized', () => this.forceLogout());
+        
+        document.addEventListener('click', () => {
+            if (this.currentView === 'view-scanner') {
+                const hwInput = document.getElementById('hardware-scanner-input');
+                if (hwInput) hwInput.focus();
+            }
+        });
+
+        this.bindForms();
+        await this.checkAuth();
+    },
+
+    bindForms() {
+        document.getElementById('login-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const u = document.getElementById('login-username').value;
+            const p = document.getElementById('login-password').value;
+            const res = await api.login(u, p);
+            if (res && res.token) {
+                localStorage.setItem('auth_token', res.token);
+                this.user = res.user;
+                this.onLoginSuccess();
+            } else {
+                this.showToast('Login failed', 'error');
+            }
+        });
+
+        document.getElementById('create-user-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const u = document.getElementById('new-username').value;
+            const p = document.getElementById('new-password').value;
+            const r = document.getElementById('new-role').value;
+            const res = await api.createUser({username: u, password: p, role: r});
+            if (res && res.id) {
+                this.showToast('User created');
+                document.getElementById('create-user-form').reset();
+                this.loadAdminUsers();
+            } else {
+                this.showToast('Error creating user', 'error');
+            }
+        });
+
+        document.getElementById('add-stock-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const type = document.getElementById('stock-type').value;
+            const quantity = parseInt(document.getElementById('stock-quantity')?.value) || 1;
+            const data = { quantity, custom_properties: {} };
+            const inputs = document.getElementById('dynamic-fields-container').querySelectorAll('input');
+            inputs.forEach(input => {
+                if(input.value.trim() !== '') {
+                    if (input.name.startsWith('custom_')) {
+                        const key = input.name.replace('custom_', '');
+                        data.custom_properties[key] = input.value.trim();
+                    } else {
+                        data[input.name] = input.value.trim();
+                    }
+                }
+            });
+            if (Object.keys(data.custom_properties).length === 0) {
+                delete data.custom_properties;
+            }
+            
+            let res;
+            if (type === 'cabinets') {
+                res = await api.createCabinet(data);
+            } else {
+                res = await api.createComponent(type, data);
+            }
+            
+            if (res && res.id) {
+                this.showToast(`${quantity} item(s) added successfully`);
+                document.getElementById('add-stock-form').reset();
+                this.renderDynamicFields();
+                this.loadStockList();
+            } else {
+                this.showToast('Failed to add stock', 'error');
+            }
+        });
+
+        document.getElementById('stock-type')?.addEventListener('change', () => {
+            this.renderDynamicFields();
+        });
+
+        document.getElementById('tab-add-stock')?.addEventListener('click', (e) => {
+            e.target.classList.add('active', 'primary');
+            e.target.style.background = '';
+            e.target.style.color = '';
+            
+            const viewBtn = document.getElementById('tab-view-stocks');
+            if (viewBtn) {
+                viewBtn.classList.remove('active', 'primary');
+                viewBtn.style.background = 'var(--bg-glass)';
+                viewBtn.style.color = 'white';
+            }
+            
+            document.getElementById('panel-add-stock').style.display = 'block';
+            document.getElementById('panel-view-stocks').style.display = 'none';
+        });
+
+        document.getElementById('tab-view-stocks')?.addEventListener('click', (e) => {
+            e.target.classList.add('active', 'primary');
+            e.target.style.background = '';
+            e.target.style.color = '';
+            
+            const addBtn = document.getElementById('tab-add-stock');
+            if (addBtn) {
+                addBtn.classList.remove('active', 'primary');
+                addBtn.style.background = 'var(--bg-glass)';
+                addBtn.style.color = 'white';
+            }
+            
+            document.getElementById('panel-add-stock').style.display = 'none';
+            document.getElementById('panel-view-stocks').style.display = 'block';
+        });
+
+        document.getElementById('load-stocks-btn')?.addEventListener('click', () => {
+            this.loadStockList();
+        });
+        document.getElementById('stock-search')?.addEventListener('input', () => this.applyStockFilters());
+        document.getElementById('stock-filter-status')?.addEventListener('change', () => this.applyStockFilters());
+        document.getElementById('stock-sort')?.addEventListener('change', () => this.applyStockFilters());
+        
+        document.getElementById('stock-items-per-page')?.addEventListener('change', (e) => {
+            this.stockItemsPerPage = parseInt(e.target.value);
+            this.stockCurrentPage = 1;
+            this.renderStockPage();
+        });
+        
+        document.getElementById('stock-page-prev')?.addEventListener('click', () => {
+            if (this.stockCurrentPage > 1) {
+                this.stockCurrentPage--;
+                this.renderStockPage();
+            }
+        });
+        
+        document.getElementById('stock-page-next')?.addEventListener('click', () => {
+            const maxPage = Math.ceil(this.stockFilteredData.length / this.stockItemsPerPage);
+            if (this.stockCurrentPage < maxPage) {
+                this.stockCurrentPage++;
+                this.renderStockPage();
+            }
+        });        // Deployments tab handlers
+        document.getElementById('tab-deploy-list')?.addEventListener('click', (e) => {
+            document.querySelectorAll('#view-deployments .tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+                btn.style.background = 'var(--bg-glass)';
+                btn.style.border = '1px solid var(--border-glass)';
+                btn.style.color = 'white';
+            });
+            e.target.classList.add('active');
+            e.target.style.background = 'var(--primary)';
+            e.target.style.border = 'none';
+            document.getElementById('panel-deploy-list').style.display = 'block';
+            document.getElementById('panel-deploy-create').style.display = 'none';
+        });
+
+        document.getElementById('tab-deploy-create')?.addEventListener('click', (e) => {
+            document.querySelectorAll('#view-deployments .tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+                btn.style.background = 'var(--bg-glass)';
+                btn.style.border = '1px solid var(--border-glass)';
+                btn.style.color = 'white';
+            });
+            e.target.classList.add('active');
+            e.target.style.background = 'var(--primary)';
+            e.target.style.border = 'none';
+            document.getElementById('panel-deploy-list').style.display = 'none';
+            document.getElementById('panel-deploy-create').style.display = 'block';
+        });
+
+        document.getElementById('refresh-deployments-btn')?.addEventListener('click', () => {
+            this.loadDeployments();
+        });
+
+        document.getElementById('create-deployment-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                name: document.getElementById('deploy-name').value.trim(),
+                location: document.getElementById('deploy-location').value.trim(),
+                start_date: document.getElementById('deploy-start').value,
+                end_date: document.getElementById('deploy-end').value
+            };
+            
+            const res = await api.createDeployment(data);
+            if (res) {
+                this.showToast('Deployment created!');
+                e.target.reset();
+                document.getElementById('tab-deploy-list').click();
+                this.loadDeployments();
+            } else {
+                this.showToast('Failed to create deployment', 'error');
+            }
+        });
+
+        document.getElementById('refresh-repairs-btn')?.addEventListener('click', () => {
+            this.loadRepairs();
+        });
+
+        document.getElementById('bulk-print-btn')?.addEventListener('click', () => {
+            if (this.currentDisplayedStocks && this.currentDisplayedStocks.length > 0) {
+                this.bulkPrintLabels(this.currentLoadedType, this.currentDisplayedStocks);
+            } else {
+                this.showToast('No items to print', 'error');
+            }
+        });
+    },
+
+    async renderDynamicFields() {
+        const container = document.getElementById('dynamic-fields-container');
+        if (!container) return;
+        const type = document.getElementById('stock-type')?.value || 'cabinets';
+        
+        let fields = [];
+        if (type === 'cabinets') {
+            fields = [
+                {name: 'model', placeholder: 'Model'},
+                {name: 'size', placeholder: 'Size (e.g. 500x500)'},
+                {name: 'manufacturer', placeholder: 'Manufacturer'}
+            ];
+        } else if (type === 'modules') {
+            fields = [
+                {name: 'model', placeholder: 'Model'},
+                {name: 'size', placeholder: 'Size'},
+                {name: 'pixel_pitch', placeholder: 'Pixel Pitch (e.g. 2.9)'}
+            ];
+        } else if (type === 'power_supplies') {
+            fields = [
+                {name: 'model', placeholder: 'Model'},
+                {name: 'voltage', placeholder: 'Voltage (e.g. 5V)'},
+                {name: 'current', placeholder: 'Current (e.g. 40A)'}
+            ];
+        } else {
+            fields = [
+                {name: 'model', placeholder: 'Model'}
+            ];
+        }
+        
+        let html = fields.map(f => 
+            `<input type="text" name="${f.name}" placeholder="${f.placeholder}" style="padding: 8px; border-radius: 4px; border: 1px solid var(--border-glass); background: transparent; color: white;">`
+        ).join('');
+
+        try {
+            const customFields = await api.getCustomFields(type);
+            if (customFields && customFields.length > 0) {
+                html += customFields.map(f => {
+                    const req = f.is_required ? 'required' : '';
+                    const typeAttr = f.field_type === 'number' ? 'type="number" step="any"' : (f.field_type === 'date' ? 'type="date"' : 'type="text"');
+                    return `<input ${typeAttr} name="custom_${f.field_name}" placeholder="${f.field_name} (Custom)" ${req} style="padding: 8px; border-radius: 4px; border: 1px solid var(--border-glass); background: transparent; color: white;">`;
+                }).join('');
+            }
+        } catch (e) {
+            console.error("Error loading custom fields", e);
+        }
+
+        container.innerHTML = html;
+    },
+
+    async checkAuth() {
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+            this.switchView('view-login');
+            document.getElementById('bottom-nav').classList.add('hidden');
+            return;
+        }
+
+        const res = await api.getMe();
+        if (res && res.user) {
+            this.user = res.user;
+            this.onLoginSuccess();
+        } else {
+            this.forceLogout();
+        }
+    },
+
+    onLoginSuccess() {
+        document.getElementById('login-username').value = '';
+        document.getElementById('login-password').value = '';
+        document.getElementById('bottom-nav').classList.remove('hidden');
+        
+        if (this.user.role === 'admin') {
+            if (!document.getElementById('nav-admin-btn')) {
+                const nav = document.getElementById('bottom-nav');
+                const adminBtn = document.createElement('a');
+                adminBtn.href = '#';
+                adminBtn.className = 'nav-item';
+                adminBtn.id = 'nav-admin-btn';
+                adminBtn.dataset.target = 'view-admin';
+                adminBtn.innerHTML = '<ion-icon name="shield-outline"></ion-icon><span>Admin</span>';
+                nav.appendChild(adminBtn);
+                adminBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.switchView('view-admin');
+                    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+                    adminBtn.classList.add('active');
+                });
+            }
+        } else {
+            const adminBtn = document.getElementById('nav-admin-btn');
+            if (adminBtn) adminBtn.remove();
+        }
+
+        this.switchView('view-dashboard');
+    },
+
+    forceLogout() {
+        localStorage.removeItem('auth_token');
+        this.user = null;
+        document.getElementById('bottom-nav').classList.add('hidden');
+        this.switchView('view-login');
+    },
+
+    bindNavigation() {
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                const targetView = item.closest('a').dataset.target;
+                if(targetView) this.switchView(targetView);
+                
+                document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+                item.closest('a').classList.add('active');
+                
+                if (targetView === 'view-stocks') {
+                    this.loadStockList();
+                } else if (targetView === 'view-settings') {
+                    this.loadAdminUsers();
+                } else if (targetView === 'view-deployments') {
+                    this.loadDeployments();
+                } else if (targetView === 'view-repairs') {
+                    this.loadRepairs();
+                }
+            });
+        });
+    },
+
+    switchView(viewId) {
+        document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+        const el = document.getElementById(viewId);
+        
+        // If view-settings is requested but doesn't exist, we fallback to hijacking another view or we can just inject it
+        if (viewId === 'view-settings' && !el) {
+            this.renderSettingsView();
+        } else if (el) {
+            el.classList.add('active');
+        }
+
+        this.currentView = viewId;
+        
+        const titles = {
+            'view-dashboard': 'Dashboard',
+            'view-scanner': 'Scan Item',
+            'view-profile': 'Item Profile',
+            'view-settings': 'Settings',
+            'view-login': 'Login',
+            'view-admin': 'Admin Dashboard',
+            'view-stocks': 'Stock Management',
+            'view-deployments': 'Deployments',
+            'view-deployment-details': 'Deployment Details',
+            'view-repairs': 'Repairs Dashboard',
+            'view-repair-details': 'Repair Details'
+        };
+        document.getElementById('page-title').innerText = titles[viewId] || 'LED Inventory';
+        
+        if (viewId === 'view-scanner') {
+            document.getElementById('hardware-scanner-input')?.focus();
+            if (window.Scanner) window.Scanner.startCamera();
+        } else {
+            if (window.Scanner) window.Scanner.stopCamera();
+        }
+
+        if (viewId === 'view-admin') {
+            this.loadAdminUsers();
+        } else if (viewId === 'view-dashboard') {
+            this.loadDashboardStats();
+        } else if (viewId === 'view-stocks') {
+            this.renderDynamicFields();
+        }
+    },
+
+    async loadDashboardStats() {
+        const stats = await api.getStats();
+        if (stats) {
+            const elCabinets = document.getElementById('stat-cabinets');
+            const elModules = document.getElementById('stat-modules');
+            const elRepairs = document.getElementById('stat-repairs');
+            if (elCabinets) elCabinets.innerText = stats.cabinets;
+            if (elModules) elModules.innerText = stats.modules;
+            if (elRepairs) elRepairs.innerText = stats.repairs_pending;
+        }
+    },
+
+    async renderSettingsView() {
+        // Create view-settings on the fly since it doesn't exist in HTML
+        let settingsEl = document.getElementById('view-settings');
+        if (!settingsEl) {
+            settingsEl = document.createElement('section');
+            settingsEl.id = 'view-settings';
+            settingsEl.className = 'view';
+            document.getElementById('main-content').appendChild(settingsEl);
+        }
+        
+        let adminHtml = '';
+        if (this.user && this.user.role === 'admin') {
+            adminHtml = `
+                <div class="profile-card" style="margin-top:20px;">
+                    <div class="profile-title">Custom Fields Management (Admin)</div>
+                    <div style="display:flex; flex-direction:column; gap:10px;">
+                        <select id="cf-item-type" style="padding: 8px; background: rgba(0,0,0,0.5); border: 1px solid var(--border-glass); color: white; border-radius:4px;">
+                            <option value="cabinets">Cabinets</option>
+                            <option value="modules">Modules</option>
+                            <option value="power_supplies">Power Supplies</option>
+                            <option value="receiving_cards">Receiving Cards</option>
+                            <option value="hubs">Hubs</option>
+                            <option value="video_processors">Video Processors</option>
+                        </select>
+                        <div style="display:flex; gap:5px;">
+                            <input type="text" id="cf-field-name" placeholder="Field Name (e.g. wattage)" style="flex:1; padding: 8px; background: rgba(0,0,0,0.5); border: 1px solid var(--border-glass); color: white; border-radius:4px;">
+                            <select id="cf-field-type" style="padding: 8px; background: rgba(0,0,0,0.5); border: 1px solid var(--border-glass); color: white; border-radius:4px;">
+                                <option value="text">Text</option>
+                                <option value="number">Number</option>
+                                <option value="date">Date</option>
+                            </select>
+                            <button class="btn primary" id="cf-add-btn">Add</button>
+                        </div>
+                        <div id="cf-list" style="margin-top:10px;"></div>
+                    </div>
+                </div>
+            `;
+        }
+
+        settingsEl.innerHTML = `
+            <div class="profile-card">
+                <div class="profile-title">Current User</div>
+                <div class="profile-row"><span>Username:</span> <span>${this.user ? this.user.username : 'N/A'}</span></div>
+                <div class="profile-row"><span>Role:</span> <span>${this.user ? this.user.role : 'N/A'}</span></div>
+            </div>
+            ${adminHtml}
+            <button class="btn btn-danger" style="margin-top:20px; width: 100%" onclick="App.doLogout()">Logout</button>
+        `;
+        settingsEl.classList.add('active');
+
+        if (this.user && this.user.role === 'admin') {
+            this.loadCustomFieldsList();
+            document.getElementById('cf-item-type').addEventListener('change', () => this.loadCustomFieldsList());
+            document.getElementById('cf-add-btn').addEventListener('click', async () => {
+                const item_type = document.getElementById('cf-item-type').value;
+                const field_name = document.getElementById('cf-field-name').value.trim();
+                const field_type = document.getElementById('cf-field-type').value;
+                if (!field_name) return this.showToast('Enter field name', 'error');
+
+                const res = await api.addCustomField({item_type, field_name, field_type});
+                if (res) {
+                    this.showToast('Field added');
+                    document.getElementById('cf-field-name').value = '';
+                    this.loadCustomFieldsList();
+                } else {
+                    this.showToast('Failed to add field', 'error');
+                }
+            });
+        }
+    },
+
+    async loadCustomFieldsList() {
+        const type = document.getElementById('cf-item-type').value;
+        const listDiv = document.getElementById('cf-list');
+        listDiv.innerHTML = '<div style="color:var(--text-secondary);">Loading...</div>';
+        
+        const fields = await api.getCustomFields(type);
+        if (!fields || fields.length === 0) {
+            listDiv.innerHTML = '<div style="color:var(--text-secondary); font-size:0.85rem;">No custom fields.</div>';
+            return;
+        }
+
+        let html = '<ul style="list-style:none; padding:0; margin:0; font-size:0.85rem;">';
+        fields.forEach(f => {
+            html += `
+                <li style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border-glass);">
+                    <span>${f.field_name} (${f.field_type})</span>
+                    <button class="btn btn-danger" onclick="App.deleteCustomField(${f.id})" style="padding:4px 8px; font-size:0.75rem;">Delete</button>
+                </li>
+            `;
+        });
+        html += '</ul>';
+        listDiv.innerHTML = html;
+    },
+
+    async deleteCustomField(id) {
+        if (!confirm('Delete this field? Existing data will remain but be hidden.')) return;
+        const res = await api.deleteCustomField(id);
+        if (res) {
+            this.showToast('Field deleted');
+            this.loadCustomFieldsList();
+        } else {
+            this.showToast('Failed to delete', 'error');
+        }
+    },
+
+    async loadStockList() {
+        const type = document.getElementById('view-stock-type')?.value || 'cabinets';
+        
+        let items;
+        if (type === 'cabinets') {
+            items = await api.getCabinets();
+        } else {
+            items = await api.getComponents(type);
+        }
+        
+        let singularType = type;
+        if (type === 'cabinets') singularType = 'cabinet';
+        else if (type === 'power_supplies') singularType = 'power_supply';
+        else if (type === 'receiving_cards') singularType = 'receiving_card';
+        else if (type === 'video_processors') singularType = 'video_processor';
+        else if (type === 'modules') singularType = 'module';
+        else if (type === 'hubs') singularType = 'hub';
+        
+        this.currentLoadedType = singularType;
+
+        if (items) {
+            this.loadedStocks = items;
+            const searchInput = document.getElementById('stock-search');
+            if (searchInput) searchInput.value = ''; // Reset search
+            
+            const filterEl = document.getElementById('stock-filter-status');
+            if (filterEl) filterEl.value = 'all';
+            
+            const sortEl = document.getElementById('stock-sort');
+            if (sortEl) sortEl.value = 'newest';
+            
+            this.applyStockFilters();
+        } else {
+            this.loadedStocks = [];
+            this.applyStockFilters();
+        }
+    },
+
+    applyStockFilters() {
+        const query = (document.getElementById('stock-search')?.value || '').toLowerCase();
+        const statusFilter = document.getElementById('stock-filter-status')?.value || 'all';
+        const sortOrder = document.getElementById('stock-sort')?.value || 'newest';
+
+        // 1. Filter
+        let filtered = this.loadedStocks.filter(i => {
+            const matchesQuery = !query || 
+                (i.qr_code && i.qr_code.toLowerCase().includes(query)) ||
+                (i.serial_number && i.serial_number.toLowerCase().includes(query)) ||
+                (i.model && i.model.toLowerCase().includes(query));
+            
+            const matchesStatus = statusFilter === 'all' || i.status === statusFilter;
+            
+            return matchesQuery && matchesStatus;
+        });
+
+        // 2. Sort
+        filtered.sort((a, b) => {
+            if (sortOrder === 'newest') {
+                return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+            } else if (sortOrder === 'oldest') {
+                return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+            } else if (sortOrder === 'qr_asc') {
+                return (a.qr_code || '').localeCompare(b.qr_code || '');
+            } else if (sortOrder === 'qr_desc') {
+                return (b.qr_code || '').localeCompare(a.qr_code || '');
+            }
+            return 0;
+        });
+
+        this.stockFilteredData = filtered;
+        this.stockCurrentPage = 1;
+        this.renderStockPage();
+    },
+
+    renderStockPage() {
+        const list = document.getElementById('stocks-list');
+        const pagination = document.getElementById('stock-pagination');
+        if (!list) return;
+        
+        list.innerHTML = '';
+        
+        if (this.stockFilteredData.length === 0) {
+            list.innerHTML = '<li style="padding: 10px; text-align: center;">No items found.</li>';
+            if (pagination) pagination.style.display = 'none';
+            this.currentDisplayedStocks = [];
+            return;
+        }
+
+        const totalItems = this.stockFilteredData.length;
+        const totalPages = Math.ceil(totalItems / this.stockItemsPerPage);
+        
+        if (this.stockCurrentPage > totalPages) {
+            this.stockCurrentPage = totalPages;
+        }
+
+        const startIndex = (this.stockCurrentPage - 1) * this.stockItemsPerPage;
+        const endIndex = startIndex + this.stockItemsPerPage;
+        
+        const displayItems = this.stockFilteredData.slice(startIndex, endIndex);
+        this.currentDisplayedStocks = displayItems;
+        
+        displayItems.forEach(i => {
+            const li = document.createElement('li');
+            li.style.padding = '10px';
+            li.style.borderBottom = '1px solid var(--border-glass)';
+            li.style.marginBottom = '5px';
+            li.style.cursor = 'pointer';
+            li.innerHTML = `
+                <div style="font-weight: bold;">${i.qr_code}</div>
+                <div style="font-size: 0.85rem; color: #ccc;">Model: ${i.model || 'N/A'} | S/N: ${i.serial_number || 'N/A'} | Status: ${i.status}</div>
+            `;
+            li.addEventListener('click', () => {
+                this.renderProfile(this.currentLoadedType, i);
+                this.switchView('view-profile');
+                document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+            });
+            list.appendChild(li);
+        });
+
+        // Update Pagination UI
+        if (pagination) {
+            pagination.style.display = 'flex';
+            document.getElementById('stock-page-info').innerText = `Page ${this.stockCurrentPage} of ${totalPages} (${totalItems} total)`;
+            
+            const btnPrev = document.getElementById('stock-page-prev');
+            const btnNext = document.getElementById('stock-page-next');
+            
+            btnPrev.disabled = this.stockCurrentPage <= 1;
+            btnPrev.style.opacity = btnPrev.disabled ? '0.5' : '1';
+            
+            btnNext.disabled = this.stockCurrentPage >= totalPages;
+            btnNext.style.opacity = btnNext.disabled ? '0.5' : '1';
+        }
+    },
+
+    async loadAdminUsers() {
+        const users = await api.getUsers();
+        const list = document.getElementById('users-list');
+        if (list && users) {
+            list.innerHTML = '';
+            users.forEach(u => {
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <span><b>${u.username}</b> (${u.role})</span>
+                    <button class="btn btn-danger" style="padding: 5px 10px;" onclick="App.deleteUser(${u.id})">Del</button>
+                `;
+                li.style.display = 'flex';
+                li.style.justifyContent = 'space-between';
+                li.style.marginBottom = '10px';
+                list.appendChild(li);
+            });
+        }
+    },
+
+    async deleteUser(id) {
+        if (!confirm('Are you sure you want to delete this user?')) return;
+        const res = await api.deleteUser(id);
+        if (res) {
+            this.showToast('User deleted');
+            this.loadAdminUsers();
+        }
+    },
+
+    showToast(message, type = 'success') {
+        const toast = document.getElementById('toast');
+        toast.innerText = message;
+        toast.style.backgroundColor = type === 'success' ? 'var(--success)' : 'var(--danger)';
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 3000);
+    },
+
+    async handleScan(qrCode) {
+        this.showToast(`Scanning: ${qrCode}...`);
+        
+        const result = await api.scanItem(qrCode);
+        if (result && result.found) {
+            this.showToast('Item found!');
+            this.renderProfile(result.item_type, result.item);
+            this.switchView('view-profile');
+            
+            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+        } else {
+            this.showToast('Item not found in database', 'error');
+        }
+    },
+
+    renderProfile(type, item) {
+        const container = document.getElementById('profile-content');
+        const statuses = ['available','installed','deployed','defective','under_repair','retired'];
+        const statusOptions = statuses.map(s => `<option value="${s}" ${item.status === s ? 'selected' : ''} style="color:black;">${s}</option>`).join('');
+
+        let detailsHtml = '';
+        const excludeFields = ['id', 'qr_code', 'status', 'created_at', 'updated_at', 'cabinet_id', 'custom_properties'];
+        for (const [key, value] of Object.entries(item)) {
+            if (!excludeFields.includes(key) && value !== null && value !== '') {
+                const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                detailsHtml += `<div class="profile-row"><span>${formattedKey}:</span> <span>${value}</span></div>`;
+            }
+        }
+        
+        if (item.custom_properties) {
+            try {
+                const customProps = typeof item.custom_properties === 'string' ? JSON.parse(item.custom_properties) : item.custom_properties;
+                for (const [key, value] of Object.entries(customProps)) {
+                    if (value !== null && value !== '') {
+                        const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        detailsHtml += `<div class="profile-row"><span>${formattedKey} (Custom):</span> <span>${value}</span></div>`;
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to parse custom properties", e);
+            }
+        }
+
+        let html = `
+            <div class="profile-card">
+                <div class="profile-title" style="display:flex; justify-content:space-between; align-items:center;">
+                    <span>${type.replace('_', ' ')} Profile</span>
+                    <div>
+                        <button class="btn" id="print-label-btn" style="padding: 5px 10px; font-size:0.8rem; border: 1px solid var(--border-glass); background: transparent; color: white; margin-right: 5px;">Print</button>
+                        <button class="btn btn-danger" id="report-defect-btn" style="padding: 5px 10px; font-size:0.8rem;">Repair</button>
+                    </div>
+                </div>
+                <div class="profile-row"><span>ID:</span> <span>${item.id}</span></div>
+                <div class="profile-row"><span>QR Code:</span> <span>${item.qr_code}</span></div>
+                ${detailsHtml}
+                <div class="profile-row" style="flex-direction: column; gap: 5px; align-items: flex-start; border-bottom: none;">
+                    <span>Status:</span>
+                    <div style="display:flex; gap:10px; width:100%">
+                        <select id="update-status-select" style="flex:1; padding: 8px; background: transparent; border: 1px solid var(--border-glass); color: white; border-radius:4px;">
+                            ${statusOptions}
+                        </select>
+                        <button class="btn primary" id="update-status-btn" style="padding: 8px 15px;">Update</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        if (type === 'cabinet') {
+            html += `
+            <div class="profile-card" style="margin-top: 15px;">
+                <div class="profile-title" style="font-size: 1rem; color: white;">Cabinet Assembly</div>
+                
+                <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--border-glass);">
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Install Component</div>
+                    <div style="display:flex; gap:5px; flex-direction:column;">
+                        <input type="text" id="install-comp-qr" placeholder="Component QR..." style="padding: 8px; background: rgba(0,0,0,0.5); border: 1px solid var(--border-glass); color: white; border-radius: 4px;">
+                        <div style="display:flex; gap:5px;">
+                            <input type="text" id="install-comp-slot" placeholder="Slot (opt)" style="flex:1; padding: 8px; background: rgba(0,0,0,0.5); border: 1px solid var(--border-glass); color: white; border-radius: 4px;">
+                            <button class="btn primary" id="install-comp-btn">Install</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Installed Components</div>
+                <div id="cabinet-components-list">Loading components...</div>
+            </div>`;
+        }
+        
+        html += `
+            <div class="profile-card" style="margin-top: 15px;">
+                <div class="profile-title" style="font-size: 1rem; color: white;">Activity History</div>
+                <div id="item-logs-list" style="margin-top:10px;">Loading history...</div>
+            </div>
+        `;
+
+        container.innerHTML = html;
+
+        document.getElementById('update-status-btn')?.addEventListener('click', async () => {
+            const newStatus = document.getElementById('update-status-select').value;
+            const res = await api.updateStatus(type, item.id, newStatus);
+            if (res) {
+                this.showToast('Status updated successfully');
+                item.status = newStatus;
+            } else {
+                this.showToast('Failed to update status', 'error');
+            }
+        });
+
+        document.getElementById('report-defect-btn')?.addEventListener('click', async () => {
+            const desc = prompt("Enter defect/issue description:");
+            if (!desc) return;
+            const res = await api.createRepair({
+                item_type: type,
+                item_id: item.id,
+                issue_description: desc,
+                technician: this.user ? this.user.username : 'Unknown'
+            });
+            if (res) {
+                this.showToast('Repair ticket created!');
+                item.status = 'under_repair';
+                this.renderProfile(type, item);
+            } else {
+                this.showToast('Failed to create ticket', 'error');
+            }
+        });
+
+        document.getElementById('print-label-btn')?.addEventListener('click', () => {
+            this.printLabel(type, item);
+        });
+
+        if (type === 'cabinet') {
+            this.loadCabinetComponentsUI(item.id);
+
+            document.getElementById('install-comp-btn')?.addEventListener('click', async () => {
+                const qr = document.getElementById('install-comp-qr').value.trim();
+                const slot = document.getElementById('install-comp-slot').value.trim();
+                if (!qr) return this.showToast('Enter component QR', 'error');
+
+                const scanRes = await api.scanItem(qr);
+                if (!scanRes || !scanRes.found || scanRes.item_type === 'cabinet') {
+                    return this.showToast('Invalid component QR', 'error');
+                }
+
+                if (scanRes.item.status !== 'available') {
+                    return this.showToast(`Cannot install: Component is ${scanRes.item.status}`, 'error');
+                }
+
+                const res = await api.installComponent(item.id, scanRes.item_type, scanRes.item.id, slot);
+                if (res) {
+                    this.showToast('Component installed!');
+                    document.getElementById('install-comp-qr').value = '';
+                    document.getElementById('install-comp-slot').value = '';
+                    this.loadCabinetComponentsUI(item.id);
+                } else {
+                    this.showToast('Failed to install', 'error');
+                }
+            });
+        }
+        
+        this.loadItemLogs(type, item.id);
+    },
+
+    async loadItemLogs(type, id) {
+        const listDiv = document.getElementById('item-logs-list');
+        if (!listDiv) return;
+        
+        const logs = await api.getLogs(type, id);
+        if (logs && logs.length > 0) {
+            let html = '<ul style="list-style-type:none; padding-left:0; margin:0;">';
+            logs.forEach(l => {
+                const date = new Date(l.created_at).toLocaleString();
+                let icon = 'ellipse-outline';
+                if (l.action === 'create') icon = 'add-circle-outline';
+                if (l.action === 'install') icon = 'hardware-chip-outline';
+                if (l.action === 'remove') icon = 'close-circle-outline';
+                if (l.action === 'status_change') icon = 'refresh-outline';
+                
+                html += `
+                    <li style="display:flex; gap:10px; margin-bottom: 15px; border-left: 2px solid var(--border-glass); padding-left: 10px;">
+                        <ion-icon name="${icon}" style="font-size:1.2rem; color:var(--accent-glow); margin-left:-18px; background:var(--bg-surface); border-radius:50%;"></ion-icon>
+                        <div>
+                            <div style="font-size:0.75rem; color:var(--text-secondary);">${date}</div>
+                            <div style="font-weight:bold; font-size: 0.9rem; margin-top:2px; text-transform: capitalize;">${l.action.replace('_', ' ')}</div>
+                            ${l.notes ? `<div style="font-size:0.85rem; color:#ccc; margin-top:2px;">${l.notes}</div>` : ''}
+                        </div>
+                    </li>
+                `;
+            });
+            html += '</ul>';
+            listDiv.innerHTML = html;
+        } else {
+            listDiv.innerHTML = '<div style="font-size:0.9rem; color:var(--text-secondary);">No history found</div>';
+        }
+    },
+
+    async loadCabinetComponentsUI(cabinetId) {
+        const listDiv = document.getElementById('cabinet-components-list');
+        if (!listDiv) return;
+        
+        listDiv.innerHTML = 'Loading...';
+        const details = await api.getCabinet(cabinetId);
+        
+        if (details && details.components && details.components.length > 0) {
+            let html = '<div style="display:flex; flex-direction:column; gap:8px;">';
+            details.components.forEach(c => {
+                html += `
+                    <div class="glass" style="display:flex; justify-content:space-between; align-items:center; padding: 10px; border-radius:4px;">
+                        <div>
+                            <div style="font-size:0.75rem; color:var(--accent-glow);">${c.component_type.toUpperCase()}</div>
+                            <div style="font-weight:bold;">${c.comp_qr_code}</div>
+                            ${c.slot ? `<div style="font-size:0.8rem; color:var(--text-secondary);">Slot: ${c.slot}</div>` : ''}
+                        </div>
+                        <button class="btn btn-danger remove-comp-btn" data-type="${c.component_type}" data-id="${c.component_id}" style="padding: 5px 10px; font-size: 0.8rem;">Remove</button>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            listDiv.innerHTML = html;
+
+            document.querySelectorAll('.remove-comp-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    if (!confirm('Remove this component?')) return;
+                    const cType = e.target.dataset.type;
+                    const cId = e.target.dataset.id;
+                    const res = await api.removeComponent(cabinetId, cType, cId);
+                    if (res) {
+                        this.showToast('Component removed');
+                        this.loadCabinetComponentsUI(cabinetId);
+                    } else {
+                        this.showToast('Failed to remove', 'error');
+                    }
+                });
+            });
+        } else {
+            listDiv.innerHTML = '<div style="font-size:0.9rem; color:var(--text-secondary);">No components installed</div>';
+        }
+    },
+
+    async loadDeployments() {
+        const list = document.getElementById('deployments-list');
+        if (!list) return;
+        list.innerHTML = '<li style="padding: 10px; text-align: center; color: var(--text-secondary);">Loading...</li>';
+        
+        const deployments = await api.getDeployments();
+        if (deployments && deployments.length > 0) {
+            list.innerHTML = '';
+            deployments.forEach(d => {
+                const li = document.createElement('li');
+                li.style.padding = '10px';
+                li.style.borderBottom = '1px solid var(--border-glass)';
+                li.style.marginBottom = '5px';
+                li.style.cursor = 'pointer';
+                li.innerHTML = `
+                    <div style="font-weight: bold; font-size: 1rem;">${d.name}</div>
+                    <div style="font-size: 0.85rem; color: #ccc;">Location: ${d.location} | Status: <b style="color:var(--accent-glow)">${d.status}</b></div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top:2px;">Dates: ${d.start_date || 'TBD'} to ${d.end_date || 'TBD'}</div>
+                `;
+                li.addEventListener('click', () => {
+                    this.showDeploymentDetails(d.id);
+                });
+                list.appendChild(li);
+            });
+        } else {
+            list.innerHTML = '<li style="padding: 10px;">No deployments found.</li>';
+        }
+    },
+
+    async showDeploymentDetails(id) {
+        this.switchView('view-deployment-details');
+        const container = document.getElementById('deployment-details-content');
+        container.innerHTML = '<div style="padding:20px; text-align:center;">Loading deployment...</div>';
+        
+        const d = await api.getDeployment(id);
+        if (!d) {
+            container.innerHTML = '<div style="padding:20px; text-align:center;">Failed to load deployment.</div>';
+            return;
+        }
+
+        const statuses = ['planned','active','completed','cancelled'];
+        const statusOptions = statuses.map(s => `<option value="${s}" ${d.status === s ? 'selected' : ''} style="color:black;">${s}</option>`).join('');
+
+        let html = `
+            <div class="profile-card">
+                <div class="profile-title">${d.name}</div>
+                <div class="profile-row"><span>Location:</span> <span>${d.location}</span></div>
+                <div class="profile-row"><span>Start Date:</span> <span>${d.start_date || 'N/A'}</span></div>
+                <div class="profile-row"><span>End Date:</span> <span>${d.end_date || 'N/A'}</span></div>
+                <div class="profile-row" style="flex-direction: column; gap: 5px; align-items: flex-start; border-bottom: none;">
+                    <span>Status:</span>
+                    <div style="display:flex; gap:10px; width:100%">
+                        <select id="update-deploy-status-select" style="flex:1; padding: 8px; background: transparent; border: 1px solid var(--border-glass); color: white; border-radius:4px;">
+                            ${statusOptions}
+                        </select>
+                        <button class="btn primary" id="update-deploy-status-btn" style="padding: 8px 15px;">Update</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="profile-card" style="margin-top: 15px;">
+                <div class="profile-title" style="font-size: 1rem; color: white;">Assigned Hardware</div>
+                
+                <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--border-glass);">
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">Assign Item</div>
+                    <div style="display:flex; gap:5px;">
+                        <input type="text" id="deploy-assign-qr" placeholder="Scan or type QR..." style="flex:1; padding: 8px; background: rgba(0,0,0,0.5); border: 1px solid var(--border-glass); color: white; border-radius: 4px;">
+                        <button class="btn primary" id="deploy-assign-btn">Assign</button>
+                    </div>
+                </div>
+
+                <div id="deploy-items-list"></div>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+
+        document.getElementById('update-deploy-status-btn').addEventListener('click', async () => {
+            const newStatus = document.getElementById('update-deploy-status-select').value;
+            const res = await api.updateDeploymentStatus(id, newStatus);
+            if (res) {
+                this.showToast('Deployment status updated!');
+                d.status = newStatus;
+            } else {
+                this.showToast('Failed to update status', 'error');
+            }
+        });
+
+        document.getElementById('deploy-assign-btn').addEventListener('click', async () => {
+            const qr = document.getElementById('deploy-assign-qr').value.trim();
+            if (!qr) return this.showToast('Enter item QR', 'error');
+
+            const scanRes = await api.scanItem(qr);
+            if (!scanRes || !scanRes.found) return this.showToast('Item not found', 'error');
+            
+            if (scanRes.item.status === 'deployed') return this.showToast('Item is already deployed', 'warning');
+
+            const res = await api.assignDeploymentItem(id, scanRes.item_type, scanRes.item.id);
+            if (res) {
+                this.showToast('Item assigned successfully!');
+                this.showDeploymentDetails(id); // Reload to show new item
+            } else {
+                this.showToast('Failed to assign item', 'error');
+            }
+        });
+
+        const itemsList = document.getElementById('deploy-items-list');
+        if (d.items && d.items.length > 0) {
+            let itemsHtml = '<div style="display:flex; flex-direction:column; gap:8px;">';
+            d.items.forEach(i => {
+                itemsHtml += `
+                    <div class="glass" style="display:flex; justify-content:space-between; align-items:center; padding: 10px; border-radius:4px;">
+                        <div>
+                            <div style="font-size:0.75rem; color:var(--accent-glow);">${i.item_type.toUpperCase()}</div>
+                            <div style="font-weight:bold;">${i.qr_code}</div>
+                        </div>
+                        <button class="btn btn-danger remove-deploy-item-btn" data-type="${i.item_type}" data-id="${i.item_id}" style="padding: 5px 10px; font-size: 0.8rem;">Remove</button>
+                    </div>
+                `;
+            });
+            itemsHtml += '</div>';
+            itemsList.innerHTML = itemsHtml;
+
+            document.querySelectorAll('.remove-deploy-item-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    if (!confirm('Remove this item from deployment?')) return;
+                    const cType = e.target.dataset.type;
+                    const cId = e.target.dataset.id;
+                    const res = await api.removeDeploymentItem(id, cType, cId);
+                    if (res) {
+                        this.showToast('Item removed');
+                        this.showDeploymentDetails(id);
+                    } else {
+                        this.showToast('Failed to remove', 'error');
+                    }
+                });
+            });
+        } else {
+            itemsList.innerHTML = '<div style="font-size:0.9rem; color:var(--text-secondary);">No items assigned</div>';
+        }
+    },
+
+    async loadRepairs() {
+        const list = document.getElementById('repairs-list');
+        if (!list) return;
+        list.innerHTML = '<li style="padding: 10px; text-align: center; color: var(--text-secondary);">Loading...</li>';
+        
+        const repairs = await api.getRepairs();
+        if (repairs && repairs.length > 0) {
+            list.innerHTML = '';
+            repairs.forEach(r => {
+                const li = document.createElement('li');
+                li.style.padding = '10px';
+                li.style.borderBottom = '1px solid var(--border-glass)';
+                li.style.marginBottom = '5px';
+                li.style.cursor = 'pointer';
+                li.innerHTML = `
+                    <div style="font-weight: bold; font-size: 1rem;">Ticket #${r.id} <span style="font-size:0.75rem; float:right; color:var(--accent-glow)">${r.status.toUpperCase()}</span></div>
+                    <div style="font-size: 0.85rem; color: #ccc;">Item: ${r.qr_code}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top:2px;">Issue: ${r.issue_description}</div>
+                `;
+                li.addEventListener('click', () => {
+                    this.showRepairDetails(r.id);
+                });
+                list.appendChild(li);
+            });
+        } else {
+            list.innerHTML = '<li style="padding: 10px;">No active repair tickets.</li>';
+        }
+    },
+
+    async showRepairDetails(id) {
+        this.switchView('view-repair-details');
+        const container = document.getElementById('repair-details-content');
+        container.innerHTML = '<div style="padding:20px; text-align:center;">Loading ticket...</div>';
+        
+        const r = await api.getRepair(id);
+        if (!r) {
+            container.innerHTML = '<div style="padding:20px; text-align:center;">Failed to load ticket.</div>';
+            return;
+        }
+
+        const statuses = ['open','in_progress','resolved','cancelled'];
+        const statusOptions = statuses.map(s => `<option value="${s}" ${r.status === s ? 'selected' : ''} style="color:black;">${s.replace('_', ' ')}</option>`).join('');
+
+        let html = `
+            <div class="profile-card">
+                <div class="profile-title">Repair Ticket #${r.id}</div>
+                <div class="profile-row"><span>Item QR:</span> <span>${r.qr_code}</span></div>
+                <div class="profile-row"><span>Opened:</span> <span>${new Date(r.created_at).toLocaleString()}</span></div>
+                <div class="profile-row" style="flex-direction: column; align-items: flex-start;">
+                    <span style="font-weight:bold; margin-bottom:5px;">Issue Description:</span>
+                    <div style="font-size:0.9rem; background:rgba(0,0,0,0.3); padding:10px; border-radius:4px; width:100%;">${r.issue_description}</div>
+                </div>
+                <div class="profile-row" style="flex-direction: column; gap: 5px; align-items: flex-start; border-bottom: none;">
+                    <span>Ticket Status:</span>
+                    <div style="display:flex; gap:10px; width:100%">
+                        <select id="update-repair-status-select" style="flex:1; padding: 8px; background: transparent; border: 1px solid var(--border-glass); color: white; border-radius:4px;">
+                            ${statusOptions}
+                        </select>
+                        <button class="btn primary" id="update-repair-status-btn" style="padding: 8px 15px;">Update</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="profile-card" style="margin-top: 15px;">
+                <div class="profile-title" style="font-size: 1rem; color: white;">Technician Actions</div>
+                
+                <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--border-glass);">
+                    <div style="display:flex; gap:5px; flex-direction:column;">
+                        <input type="text" id="repair-action-input" placeholder="Action taken (e.g. Replaced capacitor)" style="padding: 8px; background: rgba(0,0,0,0.5); border: 1px solid var(--border-glass); color: white; border-radius: 4px;">
+                        <input type="text" id="repair-notes-input" placeholder="Additional notes (optional)" style="padding: 8px; background: rgba(0,0,0,0.5); border: 1px solid var(--border-glass); color: white; border-radius: 4px;">
+                        <button class="btn primary" id="add-repair-action-btn">Log Action</button>
+                    </div>
+                </div>
+
+                <div id="repair-actions-list"></div>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+
+        document.getElementById('update-repair-status-btn').addEventListener('click', async () => {
+            const newStatus = document.getElementById('update-repair-status-select').value;
+            const res = await api.updateRepairStatus(id, newStatus);
+            if (res) {
+                this.showToast('Ticket status updated!');
+                if (newStatus === 'resolved') {
+                    this.showToast('Item is now marked as Available.');
+                }
+                r.status = newStatus;
+            } else {
+                this.showToast('Failed to update status', 'error');
+            }
+        });
+
+        document.getElementById('add-repair-action-btn').addEventListener('click', async () => {
+            const action = document.getElementById('repair-action-input').value.trim();
+            const notes = document.getElementById('repair-notes-input').value.trim();
+            if (!action) return this.showToast('Action description required', 'error');
+
+            const res = await api.addRepairAction(id, { action, notes });
+            if (res) {
+                this.showToast('Action logged!');
+                this.showRepairDetails(id); // Reload
+            } else {
+                this.showToast('Failed to log action', 'error');
+            }
+        });
+
+        const actionsList = document.getElementById('repair-actions-list');
+        if (r.actions && r.actions.length > 0) {
+            let actionsHtml = '<ul style="padding-left:0; list-style:none;">';
+            r.actions.forEach(a => {
+                actionsHtml += `
+                    <li style="margin-bottom:10px; padding:10px; background:var(--bg-glass); border-radius:4px; border:1px solid var(--border-glass);">
+                        <div style="font-weight:bold; font-size:0.95rem;">${a.action}</div>
+                        ${a.notes ? `<div style="font-size:0.85rem; color:#aaa; margin-top:3px;">${a.notes}</div>` : ''}
+                        <div style="font-size:0.75rem; color:var(--text-secondary); margin-top:5px;">${new Date(a.created_at).toLocaleString()}</div>
+                    </li>
+                `;
+            });
+            actionsHtml += '</ul>';
+            actionsList.innerHTML = actionsHtml;
+        } else {
+            actionsList.innerHTML = '<div style="font-size:0.9rem; color:var(--text-secondary);">No actions logged yet</div>';
+        }
+    },
+
+    getLabelConfig(type) {
+        // Approximate dimensions. 1 inch = 25.4mm = 96px (standard CSS printing resolution)
+        // So 80mm ~ 302px. 50mm ~ 189px. 40mm ~ 151px. 60mm ~ 226px.
+        switch(type) {
+            case 'cabinet':
+                return { width: '80mm', height: '80mm', qrSize: 220, fontSize: '18px' };
+            case 'module':
+                return { width: '50mm', height: '50mm', qrSize: 120, fontSize: '12px' };
+            case 'video_processor':
+                return { width: '60mm', height: '60mm', qrSize: 150, fontSize: '14px' };
+            default:
+                // internal components
+                return { width: '40mm', height: '40mm', qrSize: 90, fontSize: '10px' };
+        }
+    },
+
+    printLabel(type, item) {
+        const printArea = document.getElementById('print-area');
+        if (!printArea) return;
+
+        const config = this.getLabelConfig(type);
+
+        printArea.innerHTML = `
+            <div style="width: ${config.width}; height: ${config.height}; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; font-family: sans-serif; box-sizing: border-box; padding: 2mm;">
+                <canvas id="qr-canvas"></canvas>
+                <div style="font-size: ${config.fontSize}; font-weight: bold; margin-top: 2px;">${item.qr_code}</div>
+                <div style="font-size: calc(${config.fontSize} * 0.85); margin-top: 1px;">${type.replace('_', ' ').toUpperCase()}</div>
+                <div style="font-size: calc(${config.fontSize} * 0.7); color: #555; margin-top: 1px;">S/N: ${item.serial_number || 'N/A'}</div>
+            </div>
+        `;
+
+        new QRious({
+            element: document.getElementById('qr-canvas'),
+            value: item.qr_code,
+            size: config.qrSize,
+            background: 'white',
+            foreground: 'black'
+        });
+
+        window.print();
+    },
+
+    bulkPrintLabels(type, items) {
+        const printArea = document.getElementById('print-area');
+        if (!printArea) return;
+
+        const config = this.getLabelConfig(type);
+        
+        let html = '';
+        items.forEach((item, index) => {
+            html += `
+                <div style="width: ${config.width}; height: ${config.height}; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; font-family: sans-serif; box-sizing: border-box; padding: 2mm; page-break-after: always;">
+                    <canvas id="bulk-qr-canvas-${index}"></canvas>
+                    <div style="font-size: ${config.fontSize}; font-weight: bold; margin-top: 2px;">${item.qr_code}</div>
+                    <div style="font-size: calc(${config.fontSize} * 0.85); margin-top: 1px;">${type.replace('_', ' ').toUpperCase()}</div>
+                    <div style="font-size: calc(${config.fontSize} * 0.7); color: #555; margin-top: 1px;">S/N: ${item.serial_number || 'N/A'}</div>
+                </div>
+            `;
+        });
+
+        printArea.innerHTML = html;
+
+        items.forEach((item, index) => {
+            new QRious({
+                element: document.getElementById(`bulk-qr-canvas-${index}`),
+                value: item.qr_code,
+                size: config.qrSize,
+                background: 'white',
+                foreground: 'black'
+            });
+        });
+
+        window.print();
+    },
+
+    async doLogout() {
+        await api.logout();
+        this.forceLogout();
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => App.init());

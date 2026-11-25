@@ -1,0 +1,155 @@
+.orders-help {
+    margin: 0 0 16px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.shop-catalog,
+.orders-list {
+    display: grid;
+    gap: 12px;
+}
+
+.shop-product {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 16px;
+    border: 1px solid var(--border-glass);
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.18);
+}
+
+.shop-product-info {
+    display: grid;
+    gap: 5px;
+}
+
+.shop-product-info strong {
+    color: var(--text-primary);
+}
+
+.shop-product-info span,
+.order-heading p,
+.order-customer,
+.order-item-type {
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    text-transform: capitalize;
+}
+
+.shop-quantity {
+    display: grid;
+    gap: 5px;
+    width: 120px;
+    flex-shrink: 0;
+}
+
+.shop-quantity .form-label {
+    margin: 0;
+}
+
+.orders-submit-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 18px;
+}
+
+.orders-empty,
+.orders-error {
+    padding: 18px;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.orders-error {
+    color: var(--danger);
+}
+
+.order-card {
+    margin-bottom: 0;
+}
+
+.order-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.order-heading h2 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.order-heading p {
+    margin: 5px 0 0;
+    text-transform: none;
+}
+
+.order-customer {
+    margin: 14px 0 0;
+    text-transform: none;
+}
+
+.order-items {
+    display: grid;
+    gap: 9px;
+    margin: 18px 0;
+    padding-left: 20px;
+}
+
+.order-item-type {
+    margin-left: 6px;
+}
+
+.order-notes {
+    padding: 12px;
+    border-left: 3px solid var(--accent-glow);
+    background: rgba(0, 229, 255, 0.06);
+    overflow-wrap: anywhere;
+}
+
+.order-notes p {
+    margin: 6px 0 0;
+    white-space: pre-wrap;
+}
+
+.order-review {
+    display: grid;
+    gap: 9px;
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-glass);
+}
+
+.order-review .form-label {
+    margin: 0;
+}
+
+.order-review-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+}
+
+@media (max-width: 600px) {
+    .shop-product {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .shop-quantity {
+        width: 100%;
+    }
+
+    .orders-submit-row .btn {
+        width: 100%;
+    }
+
+    .order-review-actions .btn {
+        flex: 1 1 140px;
+    }
+}

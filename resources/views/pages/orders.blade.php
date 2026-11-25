@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Orders — JMACX LED Inventory</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+    <link rel="stylesheet" href="assets/css/variables.css">
+    <link rel="stylesheet" href="assets/css/layout.css">
+    <link rel="stylesheet" href="assets/css/components.css">
+    <link rel="stylesheet" href="assets/css/pages/customer-orders.css">
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar glass" id="sidebar"></aside>
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+        <div class="main-wrapper">
+            <header class="page-header glass">
+                <button class="menu-toggle" id="menu-toggle" aria-label="Open menu"><ion-icon name="menu-outline"></ion-icon></button>
+                <h1 class="page-title" id="orders-title">My Purchase Requests</h1>
+                <button class="btn btn-sm" id="refresh-orders-btn"><ion-icon name="refresh-outline"></ion-icon> Refresh</button>
+            </header>
+            <main class="page-content" id="main-content">
+                <section class="section-card" id="orders-intro">
+                    <p class="orders-help">Track purchase requests and review any quote or update from the administrator.</p>
+                    <a class="btn primary" id="shop-link" href="shop.php"><ion-icon name="cart-outline"></ion-icon> Browse available stock</a>
+                </section>
+                <div id="orders-list" class="orders-list">
+                    <p class="orders-empty">Loading purchase requests…</p>
+                </div>
+            </main>
+        </div>
+    </div>
+    <nav class="bottom-nav glass" id="bottom-nav"></nav>
+    <div id="toast" class="toast hidden"></div>
+    <script src="assets/js/api.js"></script>
+    <script src="assets/js/auth.js"></script>
+    <script src="assets/js/toast.js"></script>
+    <script src="assets/js/nav.js"></script>
+    <script src="assets/js/pages/orders.js"></script>
+</body>
+</html>

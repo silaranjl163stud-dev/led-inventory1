@@ -1,0 +1,25 @@
+:root {
+    /* Color Palette - Deep Dark Mode */
+    --bg-base: #050505;
+    --bg-surface: #121212;
+    --bg-glass: rgba(25, 25, 25, 0.6);
+    --border-glass: rgba(255, 255, 255, 0.08);
+    
+    --accent-glow: #00e5ff;
+    --accent-hover: #00b8cc;
+    
+    --text-primary: #ffffff;
+    --text-secondary: #9e9e9e;
+    
+    --danger: #ff4d4d;
+    --success: #00e676;
+    
+    /* Typography */
+    --font-family: 'Inter', sans-serif;
+    
+    /* Dimensions */
+    --nav-height: 70px;
+    --header-height: 60px;
+    --border-radius: 16px;
+    --transition-speed: 0.3s;
+}

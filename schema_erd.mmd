@@ -1,0 +1,359 @@
+erDiagram
+    %% =========================================================================
+    %% SECTION 1: FOUNDATION & LOOKUP TABLES
+    %% =========================================================================
+
+    users {
+        bigint id PK "Auto-increment user ID"
+        varchar username UK "Unique login handle"
+        varchar password_hash "Bcrypt password hash"
+        varchar full_name "Full display name"
+        varchar email UK "Unique email address"
+        enum role "admin, manager, warehouse, technician, staff"
+        varchar auth_token "Session or bearer token"
+        boolean is_active "Active user flag"
+        timestamp created_at "Account creation timestamp"
+        timestamp deleted_at "Soft-delete timestamp"
+    }
+
+    custom_fields {
+        int id PK "Auto-increment ID"
+        varchar item_type "Target item type (cabinet, module, etc.)"
+        varchar field_name "Attribute key name"
+        enum field_type "text, number, boolean, date"
+        boolean is_required "Mandatory field flag"
+        timestamp created_at "Field definition timestamp"
+    }
+
+    locations {
+        bigint id PK "Auto-increment location ID"
+        varchar name "Location designation"
+        enum type "warehouse, event_site, repair_center, truck, office"
+        text address "Physical address"
+        bigint parent_location_id FK "Self-referencing parent location"
+        boolean is_active "Active location flag"
+    }
+
+    manufacturers {
+        bigint id PK "Auto-increment manufacturer ID"
+        varchar name UK "Unique manufacturer name"
+        varchar country "Country of origin"
+        varchar support_contact "Support email or hotline"
+        varchar website "Official web URL"
+    }
+
+    item_models {
+        bigint id PK "Auto-increment model ID"
+        enum item_type "cabinet, module, power_supply, receiving_card, hub, video_processor"
+        bigint manufacturer_id FK "FK to manufacturers"
+        varchar model_name "Model designation"
+        json specifications "Dynamic model specifications"
+    }
+
+    model_compatibility {
+        bigint id PK "Auto-increment ID"
+        bigint parent_model_id FK "FK to item_models (parent)"
+        bigint child_model_id FK "FK to item_models (child)"
+        varchar compatibility_type "Compatibility classification"
+        text notes "Technical compatibility notes"
+    }
+
+    cabinet_templates {
+        bigint id PK "Auto-increment template ID"
+        varchar name "Template layout name"
+        bigint model_id FK "FK to item_models"
+        tinyint required_module_count "Target module quantity"
+        tinyint required_psu_count "Target PSU quantity"
+        tinyint required_hub_count "Target hub quantity"
+        tinyint required_card_count "Target receiving card quantity"
+        text notes "Assembly guidelines"
+    }
+
+    status_transitions {
+        bigint id PK "Auto-increment ID"
+        varchar from_status "Source lifecycle state"
+        varchar to_status "Allowed target lifecycle state"
+    }
+
+    suppliers {
+        bigint id PK "Auto-increment supplier ID"
+        varchar name "Supplier company name"
+        varchar contact_name "Representative name"
+        varchar contact_email "Contact email"
+        varchar contact_phone "Contact phone number"
+        text address "Physical office address"
+    }
+
+    purchase_orders {
+        bigint id PK "Auto-increment PO ID"
+        bigint supplier_id FK "FK to suppliers"
+        varchar po_number UK "Unique procurement PO number"
+        enum status "draft, submitted, received, cancelled"
+        bigint ordered_by FK "FK to users"
+        timestamp ordered_at "Order placement time"
+        timestamp received_at "Goods receipt time"
+        text notes "Procurement notes"
+    }
+
+    %% =========================================================================
+    %% SECTION 2: UNIFIED ASSET CORE & HARDWARE SPECS
+    %% =========================================================================
+
+    inventory_items {
+        bigint id PK "Auto-increment asset ID"
+        enum item_type "cabinet, module, power_supply, receiving_card, hub, video_processor"
+        varchar qr_code UK "Unique physical QR code identifier"
+        varchar serial_number "Manufacturer serial number"
+        bigint model_id FK "FK to item_models"
+        varchar batch_id "Production lot batch ID"
+        enum status "available, installed, deployed, defective, under_repair, retired"
+        bigint current_location_id FK "FK to locations"
+        bigint purchase_order_id FK "FK to purchase_orders"
+        json metadata "Dynamic JSON attributes"
+        boolean is_active "Active hardware flag"
+        bigint created_by FK "FK to users"
+        bigint updated_by FK "FK to users"
+        timestamp created_at "Registration timestamp"
+        timestamp updated_at "Last update timestamp"
+        timestamp deleted_at "Soft-delete timestamp"
+    }
+
+    spec_modules {
+        bigint item_id PK "FK to inventory_items (1:1 extension)"
+        decimal pixel_pitch "LED pitch distance in mm"
+        smallint resolution_width "Horizontal pixel resolution"
+        smallint resolution_height "Vertical pixel resolution"
+        smallint width_mm "Physical module width in mm"
+        smallint height_mm "Physical module height in mm"
+        varchar scan_rate "Driving scan rate"
+        smallint refresh_rate "Refresh frequency in Hz"
+    }
+
+    spec_power_supplies {
+        bigint item_id PK "FK to inventory_items (1:1 extension)"
+        varchar voltage_in "Input AC voltage"
+        varchar voltage_out "Output DC voltage"
+        decimal current_a "Max current amperage"
+        smallint wattage "Rated power output in Watts"
+    }
+
+    spec_cabinets {
+        bigint item_id PK "FK to inventory_items (1:1 extension)"
+        varchar size "Nominal cabinet size"
+        bigint template_id FK "FK to cabinet_templates"
+        smallint width_mm "Frame width in mm"
+        smallint height_mm "Frame height in mm"
+        smallint depth_mm "Frame depth in mm"
+        decimal weight_kg "Chassis weight in kg"
+    }
+
+    spec_video_processors {
+        bigint item_id PK "FK to inventory_items (1:1 extension)"
+        varchar firmware_version "Installed firmware build"
+        tinyint input_ports "Total video input ports"
+        tinyint output_ports "Total video output ports"
+        date last_serviced_at "Last service date"
+    }
+
+    warranties {
+        bigint id PK "Auto-increment warranty ID"
+        bigint item_id FK "FK to inventory_items"
+        bigint supplier_id FK "FK to suppliers"
+        date purchase_date "Equipment purchase date"
+        date warranty_expiry "Warranty expiration date"
+        text notes "Coverage terms and warranty notes"
+    }
+
+    %% =========================================================================
+    %% SECTION 3: PHYSICAL HIERARCHY (ASSEMBLY)
+    %% =========================================================================
+
+    asset_hierarchy {
+        bigint id PK "Auto-increment hierarchy ID"
+        bigint parent_id FK "FK to inventory_items (Parent Cabinet/Screen)"
+        bigint child_id FK "FK to inventory_items (Child Component)"
+        varchar slot_info "Chassis slot or bay position"
+        timestamp installed_at "Assembly timestamp"
+        timestamp removed_at "Disassembly timestamp"
+        enum status "installed, removed"
+    }
+
+    %% =========================================================================
+    %% SECTION 4: STOCK MOVEMENTS & AUDIT TRAILS
+    %% =========================================================================
+
+    stock_movements {
+        bigint id PK "Auto-increment movement ID"
+        bigint item_id FK "FK to inventory_items"
+        enum movement_type "receive, transfer, deploy, return, repair_send, repair_return, retire"
+        bigint from_location_id FK "FK to locations (Source)"
+        bigint to_location_id FK "FK to locations (Destination)"
+        varchar reference_type "Related record type"
+        bigint reference_id "Related record ID"
+        text notes "Movement audit notes"
+        bigint created_by FK "FK to users"
+        timestamp created_at "Movement timestamp"
+    }
+
+    inventory_logs {
+        bigint id PK "Auto-increment log ID"
+        bigint item_id FK "FK to inventory_items"
+        enum action "create, status_change, repair, transfer, deploy, return, retire"
+        varchar from_status "Previous lifecycle status"
+        varchar to_status "Updated lifecycle status"
+        text notes "Operational audit remarks"
+        bigint performed_by FK "FK to users"
+        timestamp action_at "Event timestamp"
+    }
+
+    qr_scan_logs {
+        bigint id PK "Auto-increment scan ID"
+        bigint item_id FK "FK to inventory_items"
+        bigint scanned_by FK "FK to users"
+        bigint location_id FK "FK to locations"
+        varchar action "Scan context or intent"
+        timestamp scanned_at "Scan timestamp"
+    }
+
+    %% =========================================================================
+    %% SECTION 5: DEPLOYMENTS & SCREEN MAPPING
+    %% =========================================================================
+
+    deployments {
+        bigint id PK "Auto-increment deployment ID"
+        varchar name "Project or event title"
+        bigint location_id FK "FK to locations"
+        date start_date "Deployment start date"
+        date end_date "Deployment end date"
+        enum status "planned, active, completed, cancelled"
+        bigint created_by FK "FK to users"
+        bigint approved_by FK "FK to users"
+        timestamp created_at "Creation timestamp"
+    }
+
+    deployment_items {
+        bigint id PK "Auto-increment mapping ID"
+        bigint deployment_id FK "FK to deployments"
+        bigint item_id FK "FK to inventory_items"
+        varchar screen_name "Designated video wall section"
+        smallint pos_x "Horizontal tile grid coordinate"
+        smallint pos_y "Vertical tile grid coordinate"
+        timestamp assigned_at "Assignment timestamp"
+        timestamp returned_at "Decommission timestamp"
+    }
+
+    %% =========================================================================
+    %% SECTION 6: REPAIRS & REMEDIATION
+    %% =========================================================================
+
+    repairs {
+        bigint id PK "Auto-increment repair ticket ID"
+        bigint item_id FK "FK to inventory_items"
+        text issue_description "Failure diagnosis and symptoms"
+        enum priority "low, medium, high, critical"
+        enum status "open, in_progress, resolved, cancelled"
+        bigint technician_id FK "FK to users (Assigned technician)"
+        bigint repair_location_id FK "FK to locations"
+        decimal cost "Total maintenance cost"
+        decimal downtime_hours "Total downtime hours"
+        varchar before_status "Pre-repair equipment status"
+        varchar after_status "Post-repair equipment status"
+        bigint created_by FK "FK to users (Ticket creator)"
+        timestamp created_at "Ticket creation timestamp"
+        timestamp resolved_at "Ticket resolution timestamp"
+    }
+
+    repair_actions {
+        bigint id PK "Auto-increment action ID"
+        bigint repair_id FK "FK to repairs"
+        varchar action "Remediation action taken"
+        bigint component_id FK "FK to inventory_items (Replacement part)"
+        text notes "Technician action report"
+        bigint performed_by FK "FK to users"
+        timestamp created_at "Action timestamp"
+    }
+
+    %% =========================================================================
+    %% SECTION 7: PREVENTIVE MAINTENANCE
+    %% =========================================================================
+
+    maintenance_schedules {
+        bigint id PK "Auto-increment schedule ID"
+        bigint item_id FK "FK to inventory_items"
+        date scheduled_at "Planned maintenance date"
+        date completed_at "Execution completion date"
+        bigint assigned_to FK "FK to users"
+        text notes "Scheduled tasks and instructions"
+        enum status "scheduled, completed, skipped"
+    }
+
+    %% =========================================================================
+    %% ENTITY RELATIONSHIPS & CARDINALITY
+    %% =========================================================================
+
+    %% Foundation & Catalog Hierarchy
+    locations ||--o{ locations : "parent_location"
+    manufacturers ||--o{ item_models : "manufactures"
+    item_models ||--o{ model_compatibility : "parent_model"
+    item_models ||--o{ model_compatibility : "child_model"
+    item_models ||--o{ cabinet_templates : "specifies"
+    cabinet_templates ||--o{ spec_cabinets : "structures"
+
+    %% Procurement & Warranties
+    suppliers ||--o{ purchase_orders : "supplies"
+    suppliers ||--o{ warranties : "honors"
+    users ||--o{ purchase_orders : "ordered_by"
+    purchase_orders ||--o{ inventory_items : "procures"
+
+    %% Core Inventory Relations
+    item_models ||--o{ inventory_items : "model_definition"
+    locations ||--o{ inventory_items : "stored_at"
+    users ||--o{ inventory_items : "created_by"
+    users ||--o{ inventory_items : "updated_by"
+
+    %% Type-Specific 1:1 Spec Extensions
+    inventory_items ||--o| spec_modules : "module_specs"
+    inventory_items ||--o| spec_power_supplies : "psu_specs"
+    inventory_items ||--o| spec_cabinets : "cabinet_specs"
+    inventory_items ||--o| spec_video_processors : "processor_specs"
+
+    %% Physical Hierarchy (Cabinet to Component Assembly)
+    inventory_items ||--o{ asset_hierarchy : "parent_unit"
+    inventory_items ||--o{ asset_hierarchy : "child_component"
+
+    %% Warranty Coverage
+    inventory_items ||--o{ warranties : "covered_by"
+
+    %% Stock Movements, Logs & QR Scans
+    inventory_items ||--o{ stock_movements : "moved_item"
+    locations ||--o{ stock_movements : "from_location"
+    locations ||--o{ stock_movements : "to_location"
+    users ||--o{ stock_movements : "moved_by"
+
+    inventory_items ||--o{ inventory_logs : "logged_item"
+    users ||--o{ inventory_logs : "action_by"
+
+    inventory_items ||--o{ qr_scan_logs : "scanned_item"
+    locations ||--o{ qr_scan_logs : "scanned_location"
+    users ||--o{ qr_scan_logs : "scanned_by"
+
+    %% Deployments & Screen Tiling
+    locations ||--o{ deployments : "deployment_site"
+    users ||--o{ deployments : "created_by"
+    users ||--o{ deployments : "approved_by"
+    deployments ||--|{ deployment_items : "includes_item"
+    inventory_items ||--o{ deployment_items : "deployed_item"
+
+    %% Repairs & Maintenance Lifecycle
+    inventory_items ||--o{ repairs : "repaired_item"
+    locations ||--o{ repairs : "repair_location"
+    users ||--o{ repairs : "technician"
+    users ||--o{ repairs : "opened_by"
+    repairs ||--o{ repair_actions : "action_step"
+    inventory_items ||--o{ repair_actions : "replaced_part"
+    users ||--o{ repair_actions : "performed_by"
+
+    %% Preventive Maintenance
+    inventory_items ||--o{ maintenance_schedules : "scheduled_item"
+    users ||--o{ maintenance_schedules : "assigned_to"
+

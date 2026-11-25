@@ -1,0 +1,89 @@
+erDiagram
+    %% =========================================================================
+    %% SECTION 1: FOUNDATION & LOOKUP HIERARCHIES
+    %% =========================================================================
+    locations ||--o{ locations : "parent_location"
+    manufacturers ||--o{ item_models : "manufactures"
+    item_models ||--o{ model_compatibility : "parent_model"
+    item_models ||--o{ model_compatibility : "child_model"
+    item_models ||--o{ cabinet_templates : "specifies"
+    cabinet_templates ||--o{ spec_cabinets : "structures"
+
+    %% =========================================================================
+    %% SECTION 2: PROCUREMENT & WARRANTIES
+    %% =========================================================================
+    suppliers ||--o{ purchase_orders : "supplies"
+    suppliers ||--o{ warranties : "honors"
+    users ||--o{ purchase_orders : "ordered_by"
+    purchase_orders ||--o{ inventory_items : "procures"
+
+    %% =========================================================================
+    %% SECTION 3: CORE INVENTORY DEFINITION & LOCATION
+    %% =========================================================================
+    item_models ||--o{ inventory_items : "model_definition"
+    locations ||--o{ inventory_items : "stored_at"
+    users ||--o{ inventory_items : "created_by"
+    users ||--o{ inventory_items : "updated_by"
+
+    %% =========================================================================
+    %% SECTION 4: 1:1 TYPE SPECIFICATION EXTENSIONS
+    %% =========================================================================
+    inventory_items ||--o| spec_modules : "module_specs"
+    inventory_items ||--o| spec_power_supplies : "psu_specs"
+    inventory_items ||--o| spec_cabinets : "cabinet_specs"
+    inventory_items ||--o| spec_video_processors : "processor_specs"
+
+    %% =========================================================================
+    %% SECTION 5: PHYSICAL ASSEMBLY & WARRANTIES
+    %% =========================================================================
+    inventory_items ||--o{ asset_hierarchy : "parent_unit"
+    inventory_items ||--o{ asset_hierarchy : "child_component"
+    inventory_items ||--o{ warranties : "covered_by"
+
+    %% =========================================================================
+    %% SECTION 6: MOVEMENTS, AUDITING & QR SCANNING
+    %% =========================================================================
+    inventory_items ||--o{ stock_movements : "moved_item"
+    locations ||--o{ stock_movements : "from_location"
+    locations ||--o{ stock_movements : "to_location"
+    users ||--o{ stock_movements : "moved_by"
+
+    inventory_items ||--o{ inventory_logs : "logged_item"
+    users ||--o{ inventory_logs : "action_by"
+
+    inventory_items ||--o{ qr_scan_logs : "scanned_item"
+    locations ||--o{ qr_scan_logs : "scanned_location"
+    users ||--o{ qr_scan_logs : "scanned_by"
+
+    %% =========================================================================
+    %% SECTION 7: DEPLOYMENTS & SCREEN COORDINATES
+    %% =========================================================================
+    locations ||--o{ deployments : "deployment_site"
+    users ||--o{ deployments : "created_by"
+    users ||--o{ deployments : "approved_by"
+    deployments ||--|{ deployment_items : "includes_item"
+    inventory_items ||--o{ deployment_items : "deployed_item"
+
+    %% =========================================================================
+    %% SECTION 8: REPAIRS & REMEDIATION ACTIONS
+    %% =========================================================================
+    inventory_items ||--o{ repairs : "repaired_item"
+    locations ||--o{ repairs : "repair_location"
+    users ||--o{ repairs : "technician"
+    users ||--o{ repairs : "opened_by"
+    repairs ||--o{ repair_actions : "action_step"
+    inventory_items ||--o{ repair_actions : "replaced_part"
+    users ||--o{ repair_actions : "performed_by"
+
+    %% =========================================================================
+    %% SECTION 9: PREVENTIVE MAINTENANCE
+    %% =========================================================================
+    inventory_items ||--o{ maintenance_schedules : "scheduled_item"
+    users ||--o{ maintenance_schedules : "assigned_to"
+
+    %% =========================================================================
+    %% SECTION 10: CONFIGURATION & WORKFLOW RULES
+    %% =========================================================================
+    item_models ||--o{ custom_fields : "dynamic_attributes"
+    inventory_items ||--o{ status_transitions : "state_rules"
+

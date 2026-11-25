@@ -1,0 +1,119 @@
+erDiagram
+    %% =========================================================================
+    %% LED INVENTORY MANAGEMENT SYSTEM -- MVP SCHEMA ERD
+    %% Architecture: Lean 8-Table Core Model
+    %% =========================================================================
+
+    users {
+        bigint id PK
+        varchar username UK
+        varchar password_hash
+        varchar full_name
+        varchar email UK
+        enum role
+        varchar auth_token
+        boolean is_active
+        timestamp created_at
+        timestamp deleted_at
+    }
+
+    locations {
+        bigint id PK
+        varchar name
+        enum type
+        text address
+        bigint parent_location_id FK
+        boolean is_active
+    }
+
+    manufacturers {
+        bigint id PK
+        varchar name UK
+        varchar country
+        varchar support_contact
+        varchar website
+    }
+
+    item_models {
+        bigint id PK
+        enum item_type
+        bigint manufacturer_id FK
+        varchar model_name
+        json specifications
+    }
+
+    inventory_items {
+        bigint id PK
+        enum item_type
+        varchar qr_code UK
+        varchar serial_number
+        bigint model_id FK
+        varchar batch_id
+        enum status
+        bigint current_location_id FK
+        json metadata
+        boolean is_active
+        bigint created_by FK
+        bigint updated_by FK
+        timestamp created_at
+        timestamp updated_at
+        timestamp deleted_at
+    }
+
+    deployments {
+        bigint id PK
+        varchar name
+        bigint location_id FK
+        date start_date
+        date end_date
+        enum status
+        bigint created_by FK
+        bigint approved_by FK
+        timestamp created_at
+    }
+
+    deployment_items {
+        bigint id PK
+        bigint deployment_id FK
+        bigint item_id FK
+        timestamp assigned_at
+        timestamp returned_at
+    }
+
+    activity_logs {
+        bigint id PK
+        bigint item_id FK
+        enum action
+        bigint from_location_id FK
+        bigint to_location_id FK
+        varchar from_status
+        varchar to_status
+        varchar reference_type
+        bigint reference_id
+        text notes
+        bigint performed_by FK
+        timestamp created_at
+    }
+
+    %% =========================================================================
+    %% ENTITY RELATIONSHIPS & CARDINALITY
+    %% =========================================================================
+
+    locations ||--o{ locations : "parent_location"
+    manufacturers ||--o{ item_models : "manufactures"
+    item_models ||--o{ inventory_items : "model_definition"
+    locations ||--o{ inventory_items : "stored_at"
+    users ||--o{ inventory_items : "created_by"
+    users ||--o{ inventory_items : "updated_by"
+
+    locations ||--o{ deployments : "deployment_site"
+    users ||--o{ deployments : "created_by"
+    users ||--o{ deployments : "approved_by"
+    deployments ||--|{ deployment_items : "includes_item"
+    inventory_items ||--o{ deployment_items : "deployed_item"
+
+    inventory_items ||--o{ activity_logs : "logged_item"
+    locations ||--o{ activity_logs : "from_location"
+    locations ||--o{ activity_logs : "to_location"
+    users ||--o{ activity_logs : "performed_by"
+
